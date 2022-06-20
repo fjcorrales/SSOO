@@ -65,7 +65,6 @@ int main(void)
 	int out2;
 	int outErr;
 	int outErr2;
-	int contMan;
 	int contArg;
 	int siPipe;
 	pid_t pid;
@@ -141,74 +140,62 @@ int main(void)
 		//para hacer el tratamiento de los pipes simplemente comprobar cunatos argumentos hay en argvv,
 		//si hay más de uno, entonces directamente le meto pipe, en "java" if(argvv.size()>1) --> pipe
 
-		for(contMan = 0 ; argvv[contMan]!=NULL ; contMan++){}					//for para contar el nº de mandatos que me pasan
-		int pipes[contMan-1][2];								//array de pipes para saber cuantos necesito? por poner algo
-
-		for(argvc = 0 ; argvv[argvc]!= NULL ; argvc++){
-			argv = argvv[argvc];								//IMPORTANTE, esto a cada vuelta me guarda en argv el fragmento de la sentencia sin pipe
-			for(contArg = 0 ; argv[contArg]!=NULL ; contArg++){}				//for para contar el nº de argumentos en un mandato
-			if(contMan>=2){
-													//si hay más de un mandato, hago pipe
-				pid = fork();
-				if(argvc == 0){								//si estoy en el primer mandato, me creo un pipe directamente
+		int pipes[argvc-1][2];								//array de pipes para saber cuantos necesito? por poner algo
+		int cont;
+		for(cont = 0 ; argvv[cont]!= NULL ; cont++){
+			argv = argvv[cont];								//IMPORTANTE, esto a cada vuelta me guarda en argv el fragmento de la sentencia sin pipe
+			for(contArg = 0 ; argv[contArg]!=NULL ; contArg++){}//for para contar el nº de argumentos en un mandato
+			if(argvc >= 2){
+				if(cont == 0){								//si estoy en el primer mandato, me creo un pipe directamente
 					pipe(pipes[0]);							//creo pipes fuera del padre para que tanto padre como hijo tengan acceso al mismo
 				}
+				pid = fork();
 
 				if(pid==-1){								//error
-					fprintf(stderr, "ERROR al crear el hijo al ejecutar el pipe\n");
+					fprintf(stderr, "ERROR en el fork\n");
 					break;
 				}
 
-
 				////////////PARA PIPES, EL 1-->LECTURA, 0--> ESCRITURA//////////////
-				//Puede que tenga esto mal planteado o tenga que invertir los papeles de padre e hijo
 
-				else if(pid!=0){//PADRE
+				if(pid!=0){//PADRE
 
-					if(argvv[argvc+2]!=NULL){					//me creo los pipes "necesarios", solo con vista a 2 mandatos en adelante
-						pipe(pipes[argvc+1]);
+					if(argvv[cont+2]!=NULL){					//me creo los pipes "necesarios", solo con vista a 2 mandatos en adelante
+						pipe(pipes[cont+1]);
 					}
 
-					//manejo de la apertura/cierre de fd según la ubicacion de los pipes y los argumentos
+					if(cont > 0){
+						close(pipes[cont-1][0]);
+						close(pipes[cont-1][1]);
 
-					if(argvc == 0){							//si es el primer mandato
-						close(pipes[0][1]); 					//cierro el fd de lectura del pipe del primer mandato
 					}
-
-					else if(argvc == contMan-1){					//si es el ultimo mandato cierro el de escritura de su pipe
-						close(pipes[contMan-1][0]);
-						close(pipes[contMan-1][1]);
-					}
-
-					else{								//si es un mandato entre medias de varios pipes
-						close(pipes[argvc-1][0]);
-						close(pipes[argvc-1][1]);
-						close(pipes[argvc][1]);
-					}
+					printf("Papa terminado\n");
 				}
 
-				else{//HIJO
-					if(argvc == 0){							//si es el primer mandato
-						dup2(pipes[0][1], 1);
-						close(pipes[0][1]);
-						close(pipes[0][0]);
-					}
-					else if(argvc == contMan-1){						//si es el ultimo mandato
-						dup2(pipes[argvc-1][0], 0);
-						close(pipes[argvc-1][1]);
-						close(pipes[argvc-1][0]);
+				else if(pid == 0){//HIJO
+					if(cont == 0){							//si es el primer mandato
+						printf("Soy el hijo primer mandato\n");
+						close(pipes[cont][0]);
+						dup2(pipes[cont][1], 1);
+						close(pipes[cont][1]);
+					}else if(argvv[cont+1] == NULL){						//si es el ultimo mandato
+						printf("Soy el hijo ultimo mandato\n");
+						close(pipes[cont-1][1]);
+						dup2(pipes[cont-1][0],0);
+						close(pipes[cont-1][0]);
 					}else{							//si es un mandato entre medias de varios pipes
-						dup2(pipes[argvc-1][0], 0);			//hago dup de lectura del pipe anterior y escritura del siguiente
-						dup2(pipes[argvc][1], 1);
-					//	close(pipes[argvc-1][1]);			//y cierro todos los pipes
-						close(pipes[argvc-1][0]);
-						close(pipes[argvc][1]);
-						close(pipes[argvc][0]);
+						printf("Soy el hijo mandato intermedio\n");
+						close(pipes[cont-1][1]);
+						close(pipes[cont][0]);
+						dup2(pipes[cont-1][0],0);
+						dup2(pipes[cont][1],1);
+						close(pipes[cont-1][0]);
+						close(pipes[cont][1]);
 					}
-
+					printf("Hijo creado, pipes hechos, antes de entrar a mandatos y execvp\n");
 					/* Ejecucion de los mandatos internos y en caso de no haber recibido ninguno de estos
 					posterior ejecucion de un execvp para ejecutar el mandato introducido
-					REVISAR LAS CONDICIONES DE ENTRADA, PUEDE QUE ALGO MAS SEA NECESARIO
+					REVISAR LAS CONDICIONES DE ENTRADA, PUEDE QUE ALGO MAS SEA NECESARIO BACKGROUND IMPORTANTE
 					*/
 					if(strstr(argv[0], "cd")!=NULL){
 						//TODO
@@ -220,10 +207,12 @@ int main(void)
 						//TODO
 					}else{
 						//si no le paso ningun mandato interno, hago llamada a execvp para ejecutar el mandato
+						printf("Entrando al execvp\n");
 						execvp(argv[0], argv);
 						fprintf(stderr, "ERROR al ejecutar exec, revisar mandato escrito\n");
 						exit(1);
 					}
+					exit(0);
 				}
 			}
 
@@ -231,7 +220,6 @@ int main(void)
 			funcionamiento: if-else anidados para comprobar cual es el mandato pedido
 					en caso de no coincidir con ninguno, ejecuta un execvp
 			*/
-
 			if(strstr(argv[0], "cd")!=NULL){
 
 				if(argv[1]!=NULL){
@@ -294,6 +282,7 @@ int main(void)
 				}
 			}
 		}//fin for
+
 
 /////////////////TRATAMIENTO DE EJECUCION EN BACKGROUND/////////////////
 
