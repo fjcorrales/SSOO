@@ -1,4 +1,4 @@
-/*-
+  /*-
  * main.c
  * Minishell C source
  * Shows how to use "obtain_order" input interface function.
@@ -46,7 +46,11 @@ int miUmask(int nargs, int newMask);
 int miLimit(int nargs, char *recurso, int max);
 
 int miSet();
+
+void handler(int num);
 /////////////////////////////////////////////////////////////////////////
+pid_t pid;
+int bg; // indica de forma automatica que hay que ejecutar en el background
 
 int main(void)
 {
@@ -56,7 +60,6 @@ int main(void)
 	int argc;							 // igual argvc, para bucles anidados
 	char *filev[3] = {NULL, NULL, NULL}; // para el tratamiento de las redirecciones
 
-	int bg; // indica de forma automatica que hay que ejecutar en el background
 	int ret;
 	int in;
 	int in2;
@@ -65,8 +68,7 @@ int main(void)
 	int outErr;
 	int outErr2;
 	int contArg;
-	// int siPipe;
-	pid_t pid;
+	struct sigaction accion;
 
 	setbuf(stdout, NULL); /* Unbuffered */
 	setbuf(stdin, NULL);
@@ -83,6 +85,9 @@ int main(void)
 		if (argvc == 0)
 			continue; /* Empty line */
 
+
+		accion.sa_handler = handler;
+		accion.sa_flags = 0;
 		/////////////////TRATAMIENTO DE LAS REDIRECCIONES/////////////////
 
 		// Si tenemos una redireccion de entrada
@@ -143,18 +148,11 @@ int main(void)
 		for (cont = 0; argvv[cont] != NULL; cont++)
 		{
 			argv = argvv[cont]; // IMPORTANTE, esto a cada vuelta me guarda en argv el fragmento de la sentencia sin pipe
-			for (contArg = 0; argv[contArg] != NULL; contArg++)
-			{
-			} // for para contar el nº de argumentos en un mandato
+			for (contArg = 0; argv[contArg] != NULL; contArg++){} // for para contar el nº de argumentos en un mandato
 			if (argvc >= 2)
 			{
-				// if(cont == 0){								//si estoy en el primer mandato, me creo un pipe directamente
-				//	pipe(pipes[0]);							//creo pipes fuera del padre para que tanto padre como hijo tengan acceso al mismo
-				// }else if(argvv[cont+2]!=NULL){					//me creo los pipes "necesarios", solo con vista a 2 mandatos en adelante
-				//	pipe(pipes[cont+1]);
-				// }
 				if (argvv[cont + 1] != NULL)
-				{
+				{//creo un pipe si existe un siguiente mandato existe
 					pipe(pipes[cont]);
 				}
 				pid = fork();
@@ -166,7 +164,6 @@ int main(void)
 				}
 
 				////////////PARA PIPES, EL 1-->LECTURA, 0--> ESCRITURA//////////////
-				int pidh = 0;
 				if (pid != 0)
 				{ // PADRE
 					if (cont == 0)
@@ -176,66 +173,65 @@ int main(void)
 					else if (argvv[cont + 1] == NULL)
 					{ // ultimo mandato
 						close(pipes[cont - 1][0]);
-						close(pipes[cont - 1][1]);
-						// waitpid(pidh, NULL, 0);
-						// while(pidh != wait(NULL));
 					}
 					else
 					{ // mandato intermedio
 						close(pipes[cont][1]);
 						close(pipes[cont - 1][0]);
-						close(pipes[cont - 1][1]);
 					}
-
-					// if(cont > 0){
-					//	close(pipes[cont-1][0]);
-					//	close(pipes[cont-1][1]);
-					// }
-
-					printf("Papa terminado\n");
 				}
 				else if (pid == 0)
 				{ // HIJO
 					if (cont == 0)
 					{ // si es el primer mandato
-						printf("Soy el hijo primer mandato\n");
 						close(pipes[cont][0]);
 						dup2(pipes[cont][1], 1);
 						close(pipes[cont][1]);
 					}
 					else if (argvv[cont + 1] == NULL)
 					{ // si es el ultimo mandato
-						printf("Soy el hijo ultimo mandato\n");
 						close(pipes[cont - 1][1]);
 						dup2(pipes[cont - 1][0], 0);
 						close(pipes[cont - 1][0]);
-						pidh = getpid();
+
+						if (bg) {//CONTROL DE SENYALES
+							accion.sa_handler = SIG_IGN;
+							sigaction(SIGINT, &accion, NULL);
+							sigaction(SIGQUIT, &accion, NULL);
+						}
 					}
 					else
 					{ // si es un mandato entre medias de varios pipes
-						printf("Soy el hijo mandato intermedio\n");
-						// close(pipes[cont-1][1]);			sobra
+						//printf("Soy el hijo mandato intermedio\n");
+						//close(pipes[cont-1][1]);
 						close(pipes[cont][0]);
 						dup2(pipes[cont - 1][0], 0);
 						dup2(pipes[cont][1], 1);
 						close(pipes[cont - 1][0]);
 						close(pipes[cont][1]);
 					}
-					printf("Hijo creado, pipes hechos, antes de entrar a mandatos y execvp\n");
+
 					execvp(argv[0], argv);
 					fprintf(stderr, "ERROR al ejecutar exec, revisar mandato escrito\n");
 					exit(1);
 				} // hijo
-				wait(NULL);
+
 			}
 			else
 			{
+				//CONTROL DE SENYALES
+				if (bg) {
+					accion.sa_handler = SIG_IGN;
+					sigaction(SIGINT, &accion, NULL);
+					sigaction(SIGQUIT, &accion, NULL);
+				}
 				/* Mandatos internos en caso de no haber puesto pipes en la linea de comandos
 				funcionamiento: if-else anidados para comprobar cual es el mandato pedido
 						en caso de no coincidir con ninguno, ejecuta un execvp
 				*/
 				if (strstr(argv[0], "cd") != NULL)
 				{
+					//printf("cd SIN PIPES\n");
 
 					if (argv[1] != NULL)
 					{
@@ -311,6 +307,8 @@ int main(void)
 					pid = fork();
 					if (pid == 0)
 					{
+						//printf("Exec SIN PIPES\n");
+						//printf("ARGV[0] = %s\n", argv[0]);
 						execvp(argv[0], argv);
 						fprintf(stderr, "ERROR al ejecutar exec, revisar mandato escrito\n");
 						exit(1);
@@ -322,13 +320,15 @@ int main(void)
 				}
 			}
 		} // for
-
+		//CONTROL DE SENYALES
+		sigaction(SIGINT, &accion, NULL);
+        	sigaction(SIGQUIT, &accion, NULL);
 		/////////////////TRATAMIENTO DE EJECUCION EN BACKGROUND/////////////////
 		if (bg)
 		{
 			printf("[%d]\n", pid);
 		}
-		else
+		else if(bg == 0)
 		{
 			waitpid(pid, NULL, 0);
 		}
@@ -612,3 +612,10 @@ int miSet()
 {
 	return 0;
 } // Fin miSet
+
+void handler(int num){
+	if(bg==0){
+		kill(pid, SIGKILL);
+		printf("\n");
+	}
+}//fin handler
