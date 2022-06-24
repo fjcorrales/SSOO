@@ -253,9 +253,21 @@ int main(void)
 
 					if (argv[1] != NULL)
 					{
-						if (miUmask(contArg, strtol(argv[1], NULL, 8)) != 0)
-						{
-							fprintf(stderr, "ERROR no se ha podido realizar la llamada a umask\n");
+						//compruebo si el dato está en octal
+						int mask = atoi(argv[1]), noOct = 0;
+						while(mask > 0 && noOct == 0){
+							if(mask%10 < 8){
+								mask = mask/8;
+							}else{
+								noOct = 1;
+							}
+						}
+						if(noOct == 0){//si esta en octal llamo a umask
+							if (miUmask(contArg, strtol(argv[1], NULL, 8)) != 0){
+								fprintf(stderr, "ERROR no se ha podido realizar la llamada a umask\n");
+							}
+						}else{//si no, doty error
+							fprintf(stderr, "ERROR el argumento de umask no esta en octal\n");
 						}
 					}
 					else
