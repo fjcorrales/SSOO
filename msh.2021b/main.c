@@ -17,7 +17,6 @@
  * DO NOT MODIFY ANYTHING OVER THIS LINE
  * THIS FILE IS TO BE MODIFIED
  */
-/////////////////////////////////////////LIMPIA LOS COMENTARIOS ANTES DE ENTREGAR!!!!!!!!!!!!!!!!!////////////////
 #include <stddef.h> /* NULL */
 #include <stdio.h>	/* setbuf, printf */
 #include <stdlib.h>
@@ -47,20 +46,21 @@ int miLimit(int nargs, char *recurso, int max);
 
 int miSet();
 
-void handler(int num);
+void handler(int num);//funcion para el manejo de las senyales
 /////////////////////////////////////////////////////////////////////////
-pid_t pid;
+pid_t pid;//pid que generamos a la hora de hacer el fork en pipes
 int bg; // indica de forma automatica que hay que ejecutar en el background
 
 int main(void)
 {
-	char ***argvv = NULL; // Puntero interesante, matriz de strings, aquí se guarda todo lo que metes en una línea antes de darle al enter en el shell
+	char ***argvv = NULL; // Puntero interesante, matriz de strings, aqui se guarda todo lo que metes en una linea antes de darle al enter en el shell
 	int argvc;			  // Es un contador que comparamos con el "tamanio" de argvv hasta que "argvv[argvc] != NULL"
 	char **argv = NULL;
 	int argc;							 // igual argvc, para bucles anidados
 	char *filev[3] = {NULL, NULL, NULL}; // para el tratamiento de las redirecciones
 
 	int ret;
+	//variables para redirecciones
 	int in;
 	int in2;
 	int out;
@@ -68,8 +68,9 @@ int main(void)
 	int outErr;
 	int outErr2;
 	int contArg;
+	//variables para gestion de senyales
 	struct sigaction accion;
-
+	//
 	setbuf(stdout, NULL); /* Unbuffered */
 	setbuf(stdin, NULL);
 
@@ -85,7 +86,7 @@ int main(void)
 		if (argvc == 0)
 			continue; /* Empty line */
 
-
+		//iniciacion del handler de las senyales
 		accion.sa_handler = handler;
 		accion.sa_flags = 0;
 		/////////////////TRATAMIENTO DE LAS REDIRECCIONES/////////////////
@@ -143,56 +144,45 @@ int main(void)
 		}
 
 		// PIPES
-		int pipes[argvc - 1][2]; // array de pipes para saber cuantos necesito? por poner algo
-		int cont;
-		for (cont = 0; argvv[cont] != NULL; cont++)
-		{
-			argv = argvv[cont]; // IMPORTANTE, esto a cada vuelta me guarda en argv el fragmento de la sentencia sin pipe
-			for (contArg = 0; argv[contArg] != NULL; contArg++){} // for para contar el nº de argumentos en un mandato
-			if (argvc >= 2)
-			{
-				if (argvv[cont + 1] != NULL)
-				{//creo un pipe si existe un siguiente mandato existe
+		int pipes[argvc - 1][2]; // array de pipes, crea tantos pipes como mandatos-1 tenga, es decir, me crea los pipes necesarios en base a la sentencia que se pase
+		int cont;		//contador que contara el mandato en el que estoy para saber que hacer en for
+		for (cont = 0; argvv[cont] != NULL; cont++){		//for que gestiona los pipes, mediante cont, sabre en que mandato estoy y que pipes abrir y cuales cerrar
+			argv = argvv[cont]; // IMPORTANTE, esto a cada vuelta me guarda en argv el fragmento de la sentencia sin pipe (el mandato actual)
+			for (contArg = 0; argv[contArg] != NULL; contArg++){} 	// for para contar el nº de argumentos en un mandato (puede que fuera innecesario, variable argc)
+			if (argvc >= 2){					//en caso de tener mas de dos argumentos en la sentencia, necesito aplicar pipes
+				if (argvv[cont + 1] != NULL){			//creo un pipe si existe un siguiente mandato
 					pipe(pipes[cont]);
 				}
-				pid = fork();
+				pid = fork();					//creo hijo y padre y procedo a hacer sus respectivas tareas
 
-				if (pid == -1)
-				{ // error
+				if (pid == -1){ 				// error al hacer el fork
 					fprintf(stderr, "ERROR en el fork\n");
 					break;
 				}
 
-				////////////PARA PIPES, EL 1-->LECTURA, 0--> ESCRITURA//////////////
-				if (pid != 0)
-				{ // PADRE
-					if (cont == 0)
-					{ // primer mandato
-						close(pipes[cont][1]);
+				////////////PARA PIPES, EL 1-->LECTURA(entrada), 0--> ESCRITURA(salida)//////////////
+				if (pid != 0){ 					// PADRE (se encarga cerrar las entradas pertinentes de cada pipe en cada caso)
+					if (cont == 0){ 			//si estoy en el primer mandato
+						close(pipes[cont][1]);		//cierro del pipe actual la lectura ya que no se usa
 					}
-					else if (argvv[cont + 1] == NULL)
-					{ // ultimo mandato
-						close(pipes[cont - 1][0]);
+					else if (argvv[cont + 1] == NULL){ 	// si estoy en el ultimo mandato
+						close(pipes[cont - 1][0]);	//cierro del pipe anterior a este mandato la escritura (no hay pipes[cont])
 					}
-					else
-					{ // mandato intermedio
-						close(pipes[cont][1]);
-						close(pipes[cont - 1][0]);
-					}
+					else{ 					//si estoy en un mandato intermedio
+						close(pipes[cont][1]);		//cierro del pipe actual la lectura
+						close(pipes[cont - 1][0]);	//y del pipe "anterior" la escritura
+					}					//el resto de close() los realiza el hijo
 				}
-				else if (pid == 0)
-				{ // HIJO
-					if (cont == 0)
-					{ // si es el primer mandato
-						close(pipes[cont][0]);
-						dup2(pipes[cont][1], 1);
-						close(pipes[cont][1]);
+				else if (pid == 0){ 				// HIJO (se encarga de cerrar las entradas/salidas de los pipes que quedan ademas de ejecutar los mandatos)
+					if (cont == 0){ 			// si es el primer mandato
+						close(pipes[cont][0]);		//cierro la escritura del pipe actual
+						dup2(pipes[cont][1], 1);	//redirijo y duplico la lectura(entrada) a la del pipe
+						close(pipes[cont][1]);		//y cierro la lectura del pipe
 					}
-					else if (argvv[cont + 1] == NULL)
-					{ // si es el ultimo mandato
-						close(pipes[cont - 1][1]);
-						dup2(pipes[cont - 1][0], 0);
-						close(pipes[cont - 1][0]);
+					else if (argvv[cont + 1] == NULL){ 	// si es el ultimo mandato
+						close(pipes[cont - 1][1]);	//cierro la lectura del "anterior" pipe
+						dup2(pipes[cont - 1][0], 0);	//redirijo y duplico la escritura del proceso a la del pipe "anterior"
+						close(pipes[cont - 1][0]);	//cierro la escritura del pipe
 
 						if (bg) {//CONTROL DE SENYALES
 							accion.sa_handler = SIG_IGN;
@@ -200,25 +190,25 @@ int main(void)
 							sigaction(SIGQUIT, &accion, NULL);
 						}
 					}
-					else
-					{ // si es un mandato entre medias de varios pipes
-						//printf("Soy el hijo mandato intermedio\n");
-						//close(pipes[cont-1][1]);
-						close(pipes[cont][0]);
-						dup2(pipes[cont - 1][0], 0);
-						dup2(pipes[cont][1], 1);
-						close(pipes[cont - 1][0]);
-						close(pipes[cont][1]);
+					else{ 					// si es un mandato entre medias de varios pipes
+						close(pipes[cont][0]);		//cierro del pipe actual la escritura
+						dup2(pipes[cont - 1][0], 0);	//redirijo y duplico la escritura del proceso a la del pipe "anterior"
+						dup2(pipes[cont][1], 1);	//redirijo y duplico la lectura del proceos a la del pipe actual
+						close(pipes[cont - 1][0]);	//cierro la escritura del pipe "anterior"
+						close(pipes[cont][1]);		//cierro la lectura del pipe actual
 					}
 
+					//EJECUCION DE MANDATOS INTERNOS EN PIPES
+						//TODO
+					//si no es ningun mandato interno el que piden ejecutar, realizo un exec
 					execvp(argv[0], argv);
+					//en caso de que haya algun error en el exec, mando un mensaje y termino la ejecucion
 					fprintf(stderr, "ERROR al ejecutar exec, revisar mandato escrito\n");
 					exit(1);
-				} // hijo
+				} //fin hijo
 
 			}
-			else
-			{
+			else{		//en caso de que no haya pipes, realizo la ejecucion del mandato pedido, si es interno, llamando a una de mis funciones, eoc, realizo un exec
 				//CONTROL DE SENYALES
 				if (bg) {
 					accion.sa_handler = SIG_IGN;
@@ -229,31 +219,23 @@ int main(void)
 				funcionamiento: if-else anidados para comprobar cual es el mandato pedido
 						en caso de no coincidir con ninguno, ejecuta un execvp
 				*/
-				if (strstr(argv[0], "cd") != NULL)
-				{
-					//printf("cd SIN PIPES\n");
+				if (strstr(argv[0], "cd") != NULL){				//en caso de recibir el mandato cd, llamo a miCd
 
-					if (argv[1] != NULL)
-					{
-						if (micd(argv[1], contArg) != 0)
-						{
+					if (argv[1] != NULL){					//si me pasan argumentos
+						if (micd(argv[1], contArg) != 0){		//llamo a cd con los datos correspondientes
 							fprintf(stderr, "ERROR no se ha podido realizar el cambio de directorio\n");
 						}
 					}
-					else
-					{
-						if (micd("cd", contArg) != 0)
-						{
+					else{							//en caso de no tener argumentos
+						if (micd("cd", contArg) != 0){			//llamo a cd con los datos correspondientes
 							fprintf(stderr, "ERROR no se ha podido realizar el cambio de directorio\n");
 						}
 					}
 				}
-				else if (strstr(argv[0], "umask") != NULL)
-				{
+				else if (strstr(argv[0], "umask") != NULL){			//en caso de recibir el mandato umask, llamo a miUmask
 
-					if (argv[1] != NULL)
-					{
-						//compruebo si el dato está en octal
+					if (argv[1] != NULL){					//si recibo argumentos
+												//compruebo si el dato está en octal
 						int mask = atoi(argv[1]), noOct = 0;
 						while(mask > 0 && noOct == 0){
 							if(mask%10 < 8){
@@ -262,106 +244,80 @@ int main(void)
 								noOct = 1;
 							}
 						}
-						if(noOct == 0){//si esta en octal llamo a umask
+						if(noOct == 0){					//si esta en octal llamo a miUmask
 							if (miUmask(contArg, strtol(argv[1], NULL, 8)) != 0){
 								fprintf(stderr, "ERROR no se ha podido realizar la llamada a umask\n");
 							}
-						}else{//si no, doty error
+						}else{						//si no, doy error
 							fprintf(stderr, "ERROR el argumento de umask no esta en octal\n");
 						}
 					}
-					else
-					{
-						if (miUmask(contArg, 0666) != 0)
-						{
+					else{							//en caso de no tener argumentos
+						if (miUmask(contArg, 0666) != 0){		//llamo a miUmask con los datos correspondientes
 							fprintf(stderr, "ERROR no se ha podido realizar la llamada a umask\n");
 						}
 					}
 				}
-				else if (strstr(argv[0], "limit") != NULL)
-				{
-					if (argv[1] != NULL && argv[2] != NULL && contArg == 3)
-					{
+				else if (strstr(argv[0], "limit") != NULL){			//si recibo el mandato limit, llamare a miLimit
+					if (argv[1] != NULL && argv[2] != NULL && contArg == 3){// En el caso de tener tanto recurso como nuevo limite
 
-						// En el caso de tener tanto recurso como nuevo limite
-
-						if (miLimit(contArg, argv[1], atoi(argv[2])) != 0)
-						{
+						if (miLimit(contArg, argv[1], atoi(argv[2])) != 0){
 							fprintf(stderr, "ERROR no se ha podido realizar la llamada a limit\n");
 						}
 					}
-					else if (argv[1] != NULL && contArg == 2)
-					{
+					else if (argv[1] != NULL && contArg == 2){		// En el caso de solo tener recurso
 
-						// En el caso de solo tener recurso
-
-						if (miLimit(contArg, argv[1], 0) != 0)
-						{
+						if (miLimit(contArg, argv[1], 0) != 0){
 							fprintf(stderr, "ERROR no se ha podido realizar la llamada a limit\n");
 						}
 					}
-					else
-					{
-						if (miLimit(1, NULL, 0) != 0)
-						{
+					else{							//En el caso de no tener ningun argumento
+						if (miLimit(1, NULL, 0) != 0){
 							fprintf(stderr, "ERROR no se ha podido realizar la llamada a limit\n");
 						}
 					}
 				}
-				else if (strstr(argv[0], "set") != NULL)
-				{
+				else if (strstr(argv[0], "set") != NULL){			//si me pasan el mandato set
 					// TODO
 				}
-				else
-				{
-
-					// si no le paso ningun mandato interno, hago llamada a execvp para ejecutar el mandato
-					pid = fork();
-					if (pid == 0)
-					{
-						//printf("Exec SIN PIPES\n");
-						//printf("ARGV[0] = %s\n", argv[0]);
+				else{								// si no le paso ningun mandato interno, hago llamada a execvp para ejecutar el mandato
+					pid = fork();						//fork para no matar al padre(el propio msh) tras el exec
+					if (pid == 0){						//el hijo hace el exec
 						execvp(argv[0], argv);
 						fprintf(stderr, "ERROR al ejecutar exec, revisar mandato escrito\n");
 						exit(1);
 					}
-					if (pid == -1)
-					{
+					if (pid == -1){						//error
 						fprintf(stderr, "ERROR no se ha podido hacer fork para ejecutar el execvp\n");
 					}
 				}
-			}
-		} // for
+			}//fin if-else mandatos
+		} //fin for
 		//CONTROL DE SENYALES
 		sigaction(SIGINT, &accion, NULL);
         	sigaction(SIGQUIT, &accion, NULL);
 		/////////////////TRATAMIENTO DE EJECUCION EN BACKGROUND/////////////////
-		if (bg)
-		{
+		if (bg){
 			printf("[%d]\n", pid);
 		}
-		else if(bg == 0)
-		{
+		else if(bg == 0){
 			waitpid(pid, NULL, 0);
 		}
 
 		// Devolvemos las entradas y salidas a su estado original
-		if (filev[0] != NULL)
-		{
+		if (filev[0] != NULL){
 			dup2(in, 0);
 			close(in);
 		}
-		if (filev[1] != NULL)
-		{
+		if (filev[1] != NULL){
 			dup2(out, 1);
 			close(out);
 		}
-		if (filev[2] != NULL)
-		{
+		if (filev[2] != NULL){
 			dup2(outErr, 2);
 			close(outErr);
 		}
-	} // while
+	} //fin while
 	exit(0);
 	return 0;
 } // fin main
@@ -497,17 +453,17 @@ int miLimit(int nargs, char *recurso, int max)
 		*/
 
 		getrlimit(RLIMIT_CPU, &lim);
-		printf("%s\t%d\n", "Limite tiempo CPU", (int)lim.rlim_cur);
+		printf("%s\t%d\n", "Limite tiempo CPU-->", (int)lim.rlim_cur);
 		getrlimit(RLIMIT_FSIZE, &lim);
-		printf("%s\t%d\n", "Limite de tamaño maximo de fichero FSIZE", (int)lim.rlim_cur);
+		printf("%s\t%d\n", "Limite de tamaño maximo de fichero FSIZE-->", (int)lim.rlim_cur);
 		getrlimit(RLIMIT_DATA, &lim);
-		printf("%s\t%d\n", "Limite de tamaño de segmento de datos por proceso DATA", (int)lim.rlim_cur);
+		printf("%s\t%d\n", "Limite de tamaño de segmento de datos por proceso DATA-->", (int)lim.rlim_cur);
 		getrlimit(RLIMIT_STACK, &lim);
-		printf("%s\t%d\n", "Limite de tamaño de segmento de pila por proceso STACK", (int)lim.rlim_cur);
+		printf("%s\t%d\n", "Limite de tamaño de segmento de pila por proceso STACK-->", (int)lim.rlim_cur);
 		getrlimit(RLIMIT_CORE, &lim);
-		printf("%s\t%d\n", "Limite de tamaño de fichero CORE", (int)lim.rlim_cur);
+		printf("%s\t%d\n", "Limite de tamaño de fichero CORE-->", (int)lim.rlim_cur);
 		getrlimit(RLIMIT_NOFILE, &lim);
-		printf("%s\t%d\n", "Limite del numero de descriptores de fichero NOFILE", (int)lim.rlim_cur);
+		printf("%s\t%d\n", "Limite del numero de descriptores de fichero NOFILE-->", (int)lim.rlim_cur);
 		return 0;
 	}
 
@@ -522,37 +478,37 @@ int miLimit(int nargs, char *recurso, int max)
 		if (strstr(recurso, "cpu") != NULL)
 		{
 			getrlimit(RLIMIT_CPU, &lim);
-			printf("%s\t%d\n", "Limite tiempo CPU", (int)lim.rlim_cur);
+			printf("%s\t%d\n", "Limite tiempo CPU-->", (int)lim.rlim_cur);
 			return 0;
 		}
 		else if (strstr(recurso, "fsize") != NULL)
 		{
 			getrlimit(RLIMIT_FSIZE, &lim);
-			printf("%s\t%d\n", "Limite de tamaño maximo de fichero FSIZE", (int)lim.rlim_cur);
+			printf("%s\t%d\n", "Limite de tamaño maximo de fichero FSIZE-->", (int)lim.rlim_cur);
 			return 0;
 		}
 		else if (strstr(recurso, "data") != NULL)
 		{
 			getrlimit(RLIMIT_DATA, &lim);
-			printf("%s\t%d\n", "Limite de tamaño de segmento de datos por proceso DATA", (int)lim.rlim_cur);
+			printf("%s\t%d\n", "Limite de tamaño de segmento de datos por proceso DATA-->", (int)lim.rlim_cur);
 			return 0;
 		}
 		else if (strstr(recurso, "stack") != NULL)
 		{
 			getrlimit(RLIMIT_STACK, &lim);
-			printf("%s\t%d\n", "Limite de tamaño de segmento de pila por proceso STACK", (int)lim.rlim_cur);
+			printf("%s\t%d\n", "Limite de tamaño de segmento de pila por proceso STACK-->", (int)lim.rlim_cur);
 			return 0;
 		}
 		else if (strstr(recurso, "core") != NULL)
 		{
 			getrlimit(RLIMIT_CORE, &lim);
-			printf("%s\t%d\n", "Limite de tamaño de fichero CORE", (int)lim.rlim_cur);
+			printf("%s\t%d\n", "Limite de tamaño de fichero CORE-->", (int)lim.rlim_cur);
 			return 0;
 		}
 		else if (strstr(recurso, "nofile") != NULL)
 		{
 			getrlimit(RLIMIT_NOFILE, &lim);
-			printf("%s\t%d\n", "Limite del numero de descriptores de fichero NOFILE", (int)lim.rlim_cur);
+			printf("%s\t%d\n", "Limite del numero de descriptores de fichero NOFILE-->", (int)lim.rlim_cur);
 			return 0;
 		}
 		else
